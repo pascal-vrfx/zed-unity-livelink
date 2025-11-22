@@ -28,6 +28,7 @@
 #include "json.hpp"
 #include <sl/Camera.hpp>
 
+
 nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, sl::BODY_FORMAT body_format);
 nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, int id, sl::BODY_FORMAT body_format);
 
