@@ -95,7 +95,8 @@ int main(int argc, char **argv) {
         // if the ZED camera should run locally, then start a thread to handle it
         if (conf.communication_parameters.getType() == sl::CommunicationParameters::COMM_TYPE::INTRA_PROCESS) {
             //std::cout << "Try to open ZED " << conf.serial_number << ".." << std::flush;
-            if (!waitForCameraReady(clients[id_++], conf, 1000, 10)) {
+
+            if (!waitForCameraReady(clients[id_++], conf, 10000, 100)) {
                 std::cerr << "[FusionSender] Cameras not ready, aborting.\n";
                 return EXIT_FAILURE;
             }
@@ -679,6 +680,9 @@ bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
     int checkIntervalMs = 1000,
     int maxWaitSeconds = -1) // -1 = infinite
 {
+    //std::cout << "[FusionSender] Preventive reboot of ZED camera SN " << conf.serial_number << ".\n";
+    //auto status = sl::Camera::reboot(conf.serial_number, true);
+
     std::cout << "[FusionSender] Waiting for ZED camera SN " << conf.serial_number << " to be ready...\n";
 
     const auto startTs = duration_cast<milliseconds>(
@@ -700,7 +704,7 @@ bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
             );
             auto diff = now - startTs;
             if (diff.count() / 1000 >= maxWaitSeconds) {
-                std::cerr << "[FusionSender] Timeout waiting for camera SN " << conf.serial_number << " is ready.\n";
+                std::cerr << "[FusionSender] Timeout waiting for camera SN " << conf.serial_number << ".\n";
                 return false;
             }
         }
