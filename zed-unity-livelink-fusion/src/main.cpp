@@ -28,18 +28,16 @@
 #include "json.hpp"
 #include <sl/Camera.hpp>
 
-#include <algorithm>
 #include <vector>
 #include <iostream>
 #include <chrono>
-#include <fstream>
 #include <filesystem>
 
 nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, sl::BODY_FORMAT body_format);
 nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, int id, sl::BODY_FORMAT body_format);
 
 nlohmann::json bodyDataToJson(sl::BodyData body);
-void print(string msg_prefix, sl::ERROR_CODE err_code = sl::ERROR_CODE::SUCCESS, string msg_suffix = "");
+void print(std::string msg_prefix, sl::ERROR_CODE err_code = sl::ERROR_CODE::SUCCESS, std::string msg_suffix = "");
 
 bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
     int checkIntervalMs,
@@ -213,7 +211,7 @@ int main(int argc, char **argv) {
                 catch (SocketException& e)
                 {
 
-                    cerr << e.what() << endl;
+                    std::cerr << e.what() << std::endl;
                 }
             }
         }
@@ -429,18 +427,18 @@ nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, int id, sl
 /// ----------------------------------------------------------------------------
 
 
-void print(string msg_prefix, sl::ERROR_CODE err_code, string msg_suffix) {
-    cout << "[Sample]";
+void print(std::string msg_prefix, sl::ERROR_CODE err_code, std::string msg_suffix) {
+    std::cout << "[Sample]";
     if (err_code != sl::ERROR_CODE::SUCCESS)
-        cout << "[Error]";
-    cout << " " << msg_prefix << " ";
+        std::cout << "[Error]";
+    std::cout << " " << msg_prefix << " ";
     if (err_code != sl::ERROR_CODE::SUCCESS) {
-        cout << " | " << toString(err_code) << " : ";
-        cout << toVerbose(err_code);
+        std::cout << " | " << toString(err_code) << " : ";
+        std::cout << toVerbose(err_code);
     }
     if (!msg_suffix.empty())
-        cout << " " << msg_suffix;
-    cout << endl;
+        std::cout << " " << msg_suffix;
+    std::cout << std::endl;
 }
 
 // If the sender encounter NaN values, it sends 0 instead.
@@ -562,9 +560,6 @@ bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
     int checkIntervalMs = 1000,
     int maxWaitSeconds = -1) // -1 = infinite
 {
-    //std::cout << "[FusionSender] Preventive reboot of ZED camera SN " << conf.serial_number << ".\n";
-    //auto status = sl::Camera::reboot(conf.serial_number, true);
-
     std::cout << "[FusionSender] Waiting for ZED camera SN " << conf.serial_number << " to be ready...\n";
 
     const auto startTs = duration_cast<milliseconds>(
