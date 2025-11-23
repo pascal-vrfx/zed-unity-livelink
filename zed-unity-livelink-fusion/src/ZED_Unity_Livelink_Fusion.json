@@ -1,0 +1,21 @@
+{
+  "InitParameters": {
+    "depth_mode": "ULTRA",
+    "camera_resolution": "HD720",
+    "camera_fps": 30,
+    "sdk_verbose": 6,
+    "svo_real_time_mode": true
+  },
+  "PositionalTrackingParameters": {
+
+  },
+  "BodyTrackingParameters": {
+    "body_format": "BODY 38",
+    "detection_model": "HUMAN BODY ACCURATE",
+    "enable_body_fitting": false,
+    "enable_tracking": false
+  },
+  "BodyTrackingRuntimeParameters": {
+    "detection_confidence_threshold": 40
+  }
+}

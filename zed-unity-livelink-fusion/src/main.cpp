@@ -27,10 +27,13 @@
 #include "PracticalSocket.h"
 #include "json.hpp"
 #include <sl/Camera.hpp>
+
 #include <algorithm>
 #include <vector>
 #include <iostream>
 #include <chrono>
+#include <fstream>
+#include <filesystem>
 
 nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, sl::BODY_FORMAT body_format);
 nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, int id, sl::BODY_FORMAT body_format);
@@ -38,17 +41,6 @@ nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, int id, sl
 nlohmann::json bodyDataToJson(sl::BodyData body);
 void print(string msg_prefix, sl::ERROR_CODE err_code = sl::ERROR_CODE::SUCCESS, string msg_suffix = "");
 
-// Small struct to report readiness
-struct CameraReadyInfo {
-    int serial_number;
-    sl::CAMERA_STATE state;
-};
-
-bool areRequiredCamerasReady(const std::vector<int>& requiredSerials, std::vector<CameraReadyInfo>& outInfo);
-bool probeOpenCamera(int serial);
-bool waitForCamerasReady(const std::vector<int>& requiredSerials,
-    int checkIntervalMs,
-    int maxWaitSeconds);
 bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
     int checkIntervalMs,
     int maxWaitSeconds);
@@ -63,7 +55,6 @@ bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
 static const sl::COORDINATE_SYSTEM COORDINATE_SYSTEM = sl::COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
 static const sl::UNIT UNIT = sl::UNIT::METER;
 static const sl::BODY_TRACKING_MODEL BODY_MODEL = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
-static const sl::BODY_FORMAT BODY_FORMAT = sl::BODY_FORMAT::BODY_38;
 
 
 std::vector<sl::CameraIdentifier> cameras;
@@ -71,6 +62,8 @@ std::vector<sl::CameraIdentifier> cameras;
 std::vector<sl::DeviceProperties> getConnectedZeds() {
     return sl::Camera::getDeviceList();
 }
+
+namespace fs = std::filesystem;
 
 int main(int argc, char **argv) {
 
@@ -81,43 +74,35 @@ int main(int argc, char **argv) {
 
     std::string json_config_filename(argv[1]);
 
-    auto configurations = sl::readFusionConfigurationFile(json_config_filename, COORDINATE_SYSTEM, UNIT);
+    auto configs = sl::readFusionConfigurationFile(json_config_filename, COORDINATE_SYSTEM, UNIT);
 
-    if (configurations.empty()) {
+    if (configs.empty()) {
         std::cout << "Empty configuration File." << std::endl;
         return EXIT_FAILURE;
     }
 
-    // Check if the ZED camera should run within the same process or if they are running on the edge.
-    std::vector<SenderRunner> clients(configurations.size());
-    int id_ = 0;
-    for (auto conf : configurations) {
-        // if the ZED camera should run locally, then start a thread to handle it
-        if (conf.communication_parameters.getType() == sl::CommunicationParameters::COMM_TYPE::INTRA_PROCESS) {
-            //std::cout << "Try to open ZED " << conf.serial_number << ".." << std::flush;
+    // 1. Get the full absolute path to the running executable
+    fs::path exePath = fs::canonical(argv[0]);
 
-            if (!waitForCameraReady(clients[id_++], conf, 10000, 100)) {
+    // 2. Replace the extension with ".json"
+    fs::path initFile = exePath.replace_extension(".json");
+    sl::String initFilePath = initFile.string().c_str();
+
+    // Check if the ZED camera should run within the same process or if they are running on the edge.
+    std::vector<SenderRunner> clients(configs.size());
+    
+    for (int i = 0; i < configs.size(); i++) {
+        // if the ZED camera should run locally, then start a thread to handle it
+        if (configs[i].communication_parameters.getType() == sl::CommunicationParameters::COMM_TYPE::INTRA_PROCESS) {
+            clients[i].loadInit(initFilePath);
+            if (!waitForCameraReady(clients[i], configs[i], 10000, 100)) {
                 std::cerr << "[FusionSender] Cameras not ready, aborting.\n";
                 return EXIT_FAILURE;
             }
-            //auto state = clients[id_++].open(conf.input_type, BODY_FORMAT);
-            //if (state)
-            //    std::cout << ". ready !" << std::endl;
         }
         else
-            std::cout << "Fail to open ZED " << conf.serial_number << std::endl;
+            std::cout << "Fail to open ZED " << configs[i].serial_number << std::endl;
     }
-    //std::vector<int> requiredSerials;
-
-    //for (const auto& conf : configurations) {
-    //    // Optional: skip disabled entries (ZED360 might include "disabled" rigs)
-    //    requiredSerials.push_back(conf.serial_number);
-    //}
-
-    //if (!waitForCamerasReady(requiredSerials, 10000, 2*60)) {
-    //    std::cerr << "[FusionSender] Cameras not ready, aborting.\n";
-    //    return EXIT_FAILURE;
-    //}
 
     // start camera threads
     for (auto& it : clients)
@@ -134,7 +119,7 @@ int main(int argc, char **argv) {
     fusion.init(init_params);
 
     // subscribe to every cameras of the setup to internally gather their data
-    for (auto& it : configurations) {
+    for (auto& it : configs) {
         sl::CameraIdentifier uuid(it.serial_number);
         // to subscribe to a camera you must give its serial number, the way to communicate with it (shared memory or local network), and its world pose in the setup.
         auto state = fusion.subscribe(uuid, it.communication_parameters, it.pose);
@@ -571,111 +556,8 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
     return res;
 }
 
-// Check if all required serials are AVAILABLE
-bool areRequiredCamerasReady(const std::vector<int>& requiredSerials,
-    std::vector<CameraReadyInfo>& outInfo) {
-    outInfo.clear();
-
-    auto devices = getConnectedZeds();
-    if (devices.empty()) {
-        std::cout << "[FusionSender] No cameras detected.\n";
-        return false;
-    }
-
-    bool allReady = true;
-
-    for (const auto& dev : devices) {
-        CameraReadyInfo info;
-        info.serial_number = dev.serial_number;
-        info.state = dev.camera_state;
-        outInfo.push_back(info);
-    }
-
-    // If we don't specify requiredSerials, just require at least 2 AVAILABLE cameras
-    if (requiredSerials.empty()) {
-        int availableCount = 0;
-        for (const auto& cam : outInfo) {
-            if (cam.state == sl::CAMERA_STATE::AVAILABLE) {
-                ++availableCount;
-            }
-        }
-        return availableCount >= 2;
-    }
-
-    // Otherwise, require all specified serials to be AVAILABLE
-    for (int requiredSn : requiredSerials) {
-        auto it = std::find_if(outInfo.begin(), outInfo.end(),
-            [requiredSn](const CameraReadyInfo& c) {
-                return c.serial_number == requiredSn;
-            });
-
-        if (it == outInfo.end()) {
-            std::cout << "[FusionSender] Expected camera SN " << requiredSn
-                << " not detected yet.\n";
-            allReady = false;
-            continue;
-        }
-
-        if (it->state != sl::CAMERA_STATE::AVAILABLE) {
-            std::cout << "[FusionSender] Camera SN " << requiredSn
-                << " is present but not AVAILABLE (state="
-                << static_cast<int>(it->state) << ").\n";
-            allReady = false;
-        }
-
-        /*if (!probeOpenCamera(requiredSn)) {
-            std::cout << "[FusionSender] Camera SN " << requiredSn
-                << " is AVAILABLE but not ready (state="
-                << static_cast<int>(it->state) << ").\n";
-            allReady = false;
-        }*/
-    }
-
-    return allReady;
-}
-
-
 using namespace std::chrono;
-// Blocking wait until all required cameras are ready (or timeout / abort)
-bool waitForCamerasReady(const std::vector<int>& requiredSerials,
-    int checkIntervalMs = 1000,
-    int maxWaitSeconds = -1) // -1 = infinite
-{
-    std::cout << "[FusionSender] Waiting for ZED cameras to be ready...\n";
 
-    const auto startTs = duration_cast<milliseconds>(
-        system_clock::now().time_since_epoch()
-    );
-    std::vector<CameraReadyInfo> info;
-
-    while (true) {
-        bool ready = areRequiredCamerasReady(requiredSerials, info);
-
-        std::cout << "[FusionSender] Current devices:\n";
-        for (const auto& cam : info) {
-            std::cout << "  - SN " << cam.serial_number
-                << " state=" << static_cast<int>(cam.state) << "\n";
-        }
-
-        if (ready) {
-            std::cout << "[FusionSender] All required cameras are ready.\n";
-            return true;
-        }
-
-        if (maxWaitSeconds > 0) {
-            auto now = duration_cast<milliseconds>(
-                system_clock::now().time_since_epoch()
-            );
-            auto diff = now - startTs;
-            if (diff.count() / 1000 >= maxWaitSeconds) {
-                std::cerr << "[FusionSender] Timeout waiting for cameras.\n";
-                return false;
-            }
-        }
-
-        sl::sleep_ms(checkIntervalMs);
-    }
-}
 bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
     int checkIntervalMs = 1000,
     int maxWaitSeconds = -1) // -1 = infinite
@@ -688,10 +570,9 @@ bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
     const auto startTs = duration_cast<milliseconds>(
         system_clock::now().time_since_epoch()
     );
-    std::vector<CameraReadyInfo> info;
 
     while (true) {
-        bool ready = client.open(conf.input_type, BODY_FORMAT);
+        bool ready = client.open(conf.input_type);
 
         if (ready) {
             std::cout << "[FusionSender] camera SN " << conf.serial_number << " is ready.\n";
@@ -711,24 +592,4 @@ bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
 
         sl::sleep_ms(checkIntervalMs);
     }
-}
-
-// Extra robustness: “probe” open on each camera
-bool probeOpenCamera(int serial) {
-    sl::Camera zed;
-    sl::InitParameters init_params;
-    init_params.input.setFromSerialNumber(serial);
-    init_params.sdk_verbose = false;
-    init_params.camera_resolution = sl::RESOLUTION::HD720;
-    init_params.depth_mode = sl::DEPTH_MODE::ULTRA; // or NONE if you only need BT
-
-    auto err = zed.open(init_params);
-    if (err != sl::ERROR_CODE::SUCCESS) {
-        std::cerr << "[FusionSender] Probe open failed for SN " << serial
-            << " (" << sl::toString(err) << ")\n";
-        return false;
-    }
-
-    zed.close();
-    return true;
 }

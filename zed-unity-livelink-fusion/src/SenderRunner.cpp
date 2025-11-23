@@ -1,19 +1,36 @@
 #include "SenderRunner.hpp"
 
+
 SenderRunner::SenderRunner() : running(false) {
-    init_params.depth_mode = sl::DEPTH_MODE::NEURAL;
+    // set default parameters
+    init_params.depth_mode = sl::DEPTH_MODE::ULTRA;
     init_params.camera_fps = 30;
     init_params.camera_resolution = sl::RESOLUTION::HD720;
-    init_params.depth_stabilization = false; // FALSE to improve computational performance.
     init_params.sdk_verbose = 6;
     init_params.svo_real_time_mode = true;
+
+    positional_tracking_parameters.set_as_static = true;
+
+    body_tracking_parameters.detection_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
+    body_tracking_parameters.body_format = sl::BODY_FORMAT::BODY_38;
+    body_tracking_parameters.enable_body_fitting = false;
+    body_tracking_parameters.enable_tracking = false;
+
+    body_runtime_parameters.detection_confidence_threshold = 40;
 }
 
 SenderRunner::~SenderRunner() {
     zed.close();
 }
 
-bool SenderRunner::open(sl::InputType input, sl::BODY_FORMAT body_format) {
+void SenderRunner::loadInit(sl::String initFile) {
+    init_params.load(initFile);
+    positional_tracking_parameters.load(initFile);
+    body_tracking_parameters.load(initFile);
+    body_runtime_parameters.load(initFile);
+}
+
+bool SenderRunner::open(sl::InputType input) {
     // already running
     if (runner.joinable())
         return false;
@@ -27,8 +44,8 @@ bool SenderRunner::open(sl::InputType input, sl::BODY_FORMAT body_format) {
     }
 
     // in most cases in body tracking setup, the cameras are static
-    sl::PositionalTrackingParameters positional_tracking_parameters;
-    positional_tracking_parameters.set_as_static = true;
+    /*sl::PositionalTrackingParameters positional_tracking_parameters;
+    positional_tracking_parameters.set_as_static = true;*/
     state = zed.enablePositionalTracking(positional_tracking_parameters);
     if (state != sl::ERROR_CODE::SUCCESS)
     {
@@ -37,11 +54,11 @@ bool SenderRunner::open(sl::InputType input, sl::BODY_FORMAT body_format) {
     }
 
     // define the body tracking parameters, as the fusion can does the tracking and fitting you don't need to enable them here, unless you need it for your app
-    sl::BodyTrackingParameters body_tracking_parameters;
-    body_tracking_parameters.detection_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
-    body_tracking_parameters.body_format = body_format;
-    body_tracking_parameters.enable_body_fitting = false;
-    body_tracking_parameters.enable_tracking = false;
+    //sl::BodyTrackingParameters body_tracking_parameters;
+    //body_tracking_parameters.detection_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
+    //body_tracking_parameters.body_format = body_format;
+    //body_tracking_parameters.enable_body_fitting = false;
+    //body_tracking_parameters.enable_tracking = false;
     state = zed.enableBodyTracking(body_tracking_parameters);
     if (state != sl::ERROR_CODE::SUCCESS)
     {
@@ -76,8 +93,8 @@ void SenderRunner::stop()
 void SenderRunner::work() 
 {
     sl::Bodies bodies;
-    sl::BodyTrackingRuntimeParameters body_runtime_parameters;
-    body_runtime_parameters.detection_confidence_threshold = 40;
+    //sl::BodyTrackingRuntimeParameters body_runtime_parameters;
+    //body_runtime_parameters.detection_confidence_threshold = 40;
 
     // in this sample we use a dummy thread to process the ZED data.
     // you can replace it by your own application and use the ZED like you use to, retrieve its images, depth, sensors data and so on.
