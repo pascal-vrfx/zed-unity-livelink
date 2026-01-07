@@ -16,7 +16,7 @@ SenderRunner::SenderRunner() : running(false) {
     body_tracking_parameters.enable_body_fitting = false;
     body_tracking_parameters.enable_tracking = false;
 
-    body_runtime_parameters.detection_confidence_threshold = 40;
+    body_runtime_parameters.detection_confidence_threshold = 70;
 }
 
 SenderRunner::~SenderRunner() {
@@ -26,8 +26,8 @@ SenderRunner::~SenderRunner() {
 void SenderRunner::loadInit(sl::String initFile) {
     init_params.load(initFile);
     positional_tracking_parameters.load(initFile);
-    body_tracking_parameters.load(initFile);
-    body_runtime_parameters.load(initFile);
+    //body_tracking_parameters.load(initFile);
+    //body_runtime_parameters.load(initFile);
 }
 
 bool SenderRunner::open(sl::InputType input) {
@@ -56,7 +56,7 @@ bool SenderRunner::open(sl::InputType input) {
     // define the body tracking parameters, as the fusion can does the tracking and fitting you don't need to enable them here, unless you need it for your app
     //sl::BodyTrackingParameters body_tracking_parameters;
     //body_tracking_parameters.detection_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
-    //body_tracking_parameters.body_format = body_format;
+    //body_tracking_parameters.body_format = sl::BODY_FORMAT::BODY_38;
     //body_tracking_parameters.enable_body_fitting = false;
     //body_tracking_parameters.enable_tracking = false;
     state = zed.enableBodyTracking(body_tracking_parameters);

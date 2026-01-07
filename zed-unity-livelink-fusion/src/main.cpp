@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
         // if the ZED camera should run locally, then start a thread to handle it
         if (configs[i].communication_parameters.getType() == sl::CommunicationParameters::COMM_TYPE::INTRA_PROCESS) {
             clients[i].loadInit(initFilePath);
-            if (!waitForCameraReady(clients[i], configs[i], 10000, 100)) {
+            if (!waitForCameraReady(clients[i], configs[i], 10000, 600)) {
                 std::cerr << "[FusionSender] Cameras not ready, aborting.\n";
                 return EXIT_FAILURE;
             }
