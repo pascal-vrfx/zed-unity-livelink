@@ -16,7 +16,7 @@ SenderRunner::SenderRunner() : running(false) {
     body_tracking_parameters.enable_body_fitting = false;
     body_tracking_parameters.enable_tracking = false;
 
-    body_runtime_parameters.detection_confidence_threshold = 40;
+    body_runtime_parameters.detection_confidence_threshold = 70;
 }
 
 SenderRunner::~SenderRunner() {
@@ -26,8 +26,10 @@ SenderRunner::~SenderRunner() {
 void SenderRunner::loadInit(sl::String initFile) {
     init_params.load(initFile);
     positional_tracking_parameters.load(initFile);
-    body_tracking_parameters.load(initFile);
-    body_runtime_parameters.load(initFile);
+
+    // These are only supported in ZED SDK 5:
+    //body_tracking_parameters.load(initFile);
+    //body_runtime_parameters.load(initFile);
 }
 
 bool SenderRunner::open(sl::InputType input) {

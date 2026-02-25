@@ -1,4 +1,9 @@
 {
+  "AppParameters": {
+    "execute_successful_fusion": "echo \"starting unity\"",
+    "execute_failed_fusion": "shutdown.exe /r /t 60",
+    "camera_timeout": 100
+  },
   "InitParameters": {
     "depth_mode": "ULTRA",
     "camera_resolution": "HD720",

@@ -27,6 +27,7 @@
 #include "PracticalSocket.h"
 #include "json.hpp"
 #include <sl/Camera.hpp>
+#include "AppConfiguration.hpp"
 
 #include <vector>
 #include <iostream>
@@ -38,6 +39,10 @@ nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, int id, sl
 
 nlohmann::json bodyDataToJson(sl::BodyData body);
 void print(std::string msg_prefix, sl::ERROR_CODE err_code = sl::ERROR_CODE::SUCCESS, std::string msg_suffix = "");
+
+bool StartDetachedProcess(const std::string& executable, const std::wstring& args = L"");
+
+std::wstring StringToWString(const std::string& str);
 
 bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
     int checkIntervalMs,
@@ -61,6 +66,7 @@ std::vector<sl::DeviceProperties> getConnectedZeds() {
     return sl::Camera::getDeviceList();
 }
 
+using namespace std::chrono;
 namespace fs = std::filesystem;
 
 int main(int argc, char **argv) {
@@ -85,6 +91,7 @@ int main(int argc, char **argv) {
     // 2. Replace the extension with ".json"
     fs::path initFile = exePath.replace_extension(".json");
     sl::String initFilePath = initFile.string().c_str();
+    auto config = AppConfiguration::load(initFile.string());
 
     // Check if the ZED camera should run within the same process or if they are running on the edge.
     std::vector<SenderRunner> clients(configs.size());
@@ -93,8 +100,9 @@ int main(int argc, char **argv) {
         // if the ZED camera should run locally, then start a thread to handle it
         if (configs[i].communication_parameters.getType() == sl::CommunicationParameters::COMM_TYPE::INTRA_PROCESS) {
             clients[i].loadInit(initFilePath);
-            if (!waitForCameraReady(clients[i], configs[i], 10000, 100)) {
-                std::cerr << "[FusionSender] Cameras not ready, aborting.\n";
+            if (!waitForCameraReady(clients[i], configs[i], 10000, config.camera_timeout)) {
+                std::cerr << "[FusionSender] Cameras not ready - aborting.\n";
+                StartDetachedProcess(config.execute_failed_fusion);
                 return EXIT_FAILURE;
             }
         }
@@ -130,8 +138,11 @@ int main(int argc, char **argv) {
     // check that at least one camera is connected
     if (cameras.empty()) {
         std::cout << "no connections " << std::endl;
+        StartDetachedProcess(config.execute_failed_fusion);
         return EXIT_FAILURE;
     }
+
+    StartDetachedProcess(config.execute_successful_fusion);
 
     // as this sample shows how to fuse body detection from the multi camera setup
     // we enable the Body Tracking module with its options
@@ -174,11 +185,19 @@ int main(int argc, char **argv) {
 
     std::cout << "Sending fused data at " << servAddress << ":" << servPort << std::endl;
 
+    // initialize timer
+    auto startTs = duration_cast<milliseconds>(
+        system_clock::now().time_since_epoch()
+    );
     // run the fusion as long as the viewer is available.
     while (run)
     {
         // run the fusion process (which gather data from all camera, sync them and process them)
         if (fusion.process() == sl::FUSION_ERROR_CODE::SUCCESS) {
+            // reset timeout
+            startTs = duration_cast<milliseconds>(
+                system_clock::now().time_since_epoch()
+            );
             // Retrieve fused body
             fusion.retrieveBodies(fused_bodies, body_tracking_runtime_parameters);
             // for debug, you can retrieve the data send by each camera
@@ -205,13 +224,24 @@ int main(int argc, char **argv) {
                         std::string data_to_send = getJson(metrics, fused_bodies, i, fused_bodies.body_format).dump();
                         sock.sendTo(data_to_send.data(), data_to_send.size(), servAddress, servPort);
                         sl::sleep_us(100);
-
                     }
                 }
                 catch (SocketException& e)
                 {
-
                     std::cerr << e.what() << std::endl;
+                }
+            }
+        } else {
+            // Fusion wasn't successful, start a timeout
+            if (config.camera_timeout > 0) {
+                auto now = duration_cast<milliseconds>(
+                    system_clock::now().time_since_epoch()
+                );
+                auto diff = now - startTs;
+                if (diff.count() / 1000 >= config.camera_timeout) {
+                    std::cerr << "[APP] Fusion not successful for over " << config.camera_timeout << " seconds - aborting.\n";
+                    StartDetachedProcess(config.execute_failed_fusion);
+                    return EXIT_FAILURE;
                 }
             }
         }
@@ -420,6 +450,7 @@ nlohmann::json getJson(sl::FusionMetrics metrics, sl::Bodies& bodies, int id, sl
     return j;
 }
 
+
 /// ----------------------------------------------------------------------------
 /// ----------------------------------------------------------------------------
 /// ----------------------------- MISC & MONO-CAM ------------------------------
@@ -587,4 +618,51 @@ bool waitForCameraReady(SenderRunner& client, sl::FusionConfiguration& conf,
 
         sl::sleep_ms(checkIntervalMs);
     }
+}
+
+bool StartDetachedProcess(const std::string& executable, const std::wstring& args)
+{
+    auto exe = StringToWString(executable);
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
+    
+    std::wstring cmdLine = L"cmd.exe /C \"" + exe + L"\"";
+    if (!args.empty())
+        cmdLine += L" " + args;
+
+    BOOL success = CreateProcessW(
+        NULL,           
+        &cmdLine[0],
+        NULL,
+        NULL,
+        FALSE,           
+        DETACHED_PROCESS,  
+        NULL,
+        NULL,
+        &si,
+        &pi
+    );
+
+    if (!success) {
+        std::wcerr << L"CreateProcess fehlgeschlagen: " << GetLastError() << std::endl;
+        return false;
+    }
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    return true;
+}
+
+std::wstring StringToWString(const std::string& str)
+{
+    if (str.empty()) return L"";
+
+    int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+    std::wstring result(size - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &result[0], size);
+    return result;
 }
